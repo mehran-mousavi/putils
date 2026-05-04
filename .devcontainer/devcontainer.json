@@ -1,0 +1,8 @@
+{
+	"name": "SOCKS5 Proxy Codespaces",
+	"image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+	"features": {
+	  "ghcr.io/devcontainers-extra/features/chisel:1.0.4": {}
+	},
+	"postAttachCommand": "chisel server --socks5"
+}
