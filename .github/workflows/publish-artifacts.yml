@@ -2,28 +2,25 @@ name: Collect and Publish Artifacts
 on:
   workflow_dispatch:
     inputs:
-      urls:
-        description: 'Artifact URLs (one per line)'
+      run_id:
+        description: 'Workflow run ID (e.g., 25328445178)'
         required: true
-        type: string
 
 permissions:
-  contents: write          # needed to create releases & upload assets
+  contents: write
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      # Need to check out the repo so the local action is available
       - uses: actions/checkout@v4
 
-      - name: Archive artifacts and release
-        uses: ./.github/actions/archive-release  # path to your composite action
+      - name: Archive artifacts from run and release
+        uses: ./.github/actions/archive-release
         with:
-          artifact_urls: ${{ github.event.inputs.urls }}
-          release_tag: 'v1.0.0'            # adjust as needed
+          run_id: ${{ github.event.inputs.run_id }}
+          release_tag: 'v1.0.0'
           release_name: 'Release v1.0.0'
-          body: 'Automated release from collected artifacts'
-          combine_artifacts: 'true'
-          combined_archive_name: 'my-assets'
-          # The action defaults github_token to GITHUB_TOKEN, so you don't need to pass it
+          body: 'Artifacts from run ${{ github.event.inputs.run_id }}'
+          # For cross-repo runs, provide a PAT with actions:read scope
+          download_token: ${{ secrets.PAT_TOKEN }}   # create this secret!
