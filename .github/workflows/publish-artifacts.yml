@@ -1,19 +1,25 @@
 name: Collect and Publish Artifacts
+
 on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: 'Workflow run ID'
+        description: 'Workflow run ID whose artifacts will be packaged'
         required: true
         type: string
       release_tag:
         description: 'Release tag (e.g., v1.0.0)'
         required: true
         type: string
+      artifact_names:
+        description: 'Optional comma-separated artifact name filter (empty = all artifacts from the run)'
+        required: false
+        type: string
+        default: ''
 
 permissions:
-  contents: write   # needed to create releases and upload assets
-  actions: read     # needed to download artifacts (default token)
+  contents: write
+  actions: read
 
 jobs:
   publish:
@@ -26,5 +32,5 @@ jobs:
         with:
           run_id: ${{ github.event.inputs.run_id }}
           release_tag: ${{ github.event.inputs.release_tag }}
-          release_name: 'Release ${{ github.event.inputs.release_tag }}'
-          # body can be customised
+          release_name: Release ${{ github.event.inputs.release_tag }}
+          artifact_names: ${{ github.event.inputs.artifact_names }}
