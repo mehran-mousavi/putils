@@ -1,0 +1,29 @@
+name: Collect and Publish Artifacts
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: 'Artifact URLs (one per line)'
+        required: true
+        type: string
+
+permissions:
+  contents: write          # needed to create releases & upload assets
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      # Need to check out the repo so the local action is available
+      - uses: actions/checkout@v4
+
+      - name: Archive artifacts and release
+        uses: ./.github/actions/archive-release  # path to your composite action
+        with:
+          artifact_urls: ${{ github.event.inputs.urls }}
+          release_tag: 'v1.0.0'            # adjust as needed
+          release_name: 'Release v1.0.0'
+          body: 'Automated release from collected artifacts'
+          combine_artifacts: 'true'
+          combined_archive_name: 'my-assets'
+          # The action defaults github_token to GITHUB_TOKEN, so you don't need to pass it
