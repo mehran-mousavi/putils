@@ -1,12 +1,26 @@
 name: 'Archive Artifacts as Release'
 description: |
-  Download artifacts from provided URLs, optionally combine them into
-  a single archive, and publish them as assets of a GitHub Release.
+  Download artifacts from a given workflow run (or from explicit URLs),
+  optionally combine them into a single archive, and publish as a GitHub Release.
 
 inputs:
+  # --- new preferred input ---
+  run_id:
+    description: 'ID of the workflow run whose artifacts will be downloaded'
+    required: false
+
+  # --- legacy input (still supported) ---
   artifact_urls:
-    description: 'Newline-separated list of artifact download URLs'
-    required: true
+    description: 'Newline-separated list of artifact download URLs (overrides run_id)'
+    required: false
+
+  # Which artifacts to download from the run (if run_id is given)
+  artifact_names:
+    description: >
+      Comma- or newline-separated list of artifact names to download from the run.
+      If empty, ALL artifacts of that run are downloaded.
+    required: false
+    default: ''
 
   release_tag:
     description: 'Tag for the release (e.g., v1.0.0)'
@@ -33,7 +47,7 @@ inputs:
     default: 'false'
 
   target_commitish:
-    description: 'Commitish that the tag will point to (default: current commit)'
+    description: 'Commitish the tag will point to (default: current commit)'
     required: false
     default: ${{ github.sha }}
 
@@ -50,59 +64,120 @@ inputs:
   download_token:
     description: >
       Token used to download artifacts (Bearer auth).
-      Defaults to the workflow's GITHUB_TOKEN.
+      For cross-repo artifacts, use a PAT with actions:read scope.
     required: false
     default: ${{ github.token }}
 
   github_token:
     description: >
       GitHub token for creating the release / uploading assets.
-      Defaults to GITHUB_TOKEN.
     required: false
     default: ${{ github.token }}
 
 runs:
   using: 'composite'
   steps:
+    - name: Resolve artifact URLs
+      id: urls
+      shell: bash
+      env:
+        RUN_ID: ${{ inputs.run_id }}
+        MANUAL_URLS: ${{ inputs.artifact_urls }}
+        ARTIFACT_NAMES: ${{ inputs.artifact_names }}
+        TOKEN: ${{ inputs.download_token }}
+      run: |
+        set -euo pipefail
+
+        if [[ -n "$MANUAL_URLS" ]]; then
+          # manual URLs – just pass through
+          echo "url_list<<EOF" >> $GITHUB_OUTPUT
+          echo "$MANUAL_URLS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        if [[ -z "$RUN_ID" ]]; then
+          echo "ERROR: Either 'run_id' or 'artifact_urls' must be provided." >&2
+          exit 1
+        fi
+
+        # Determine repo: if RUN_ID is from another repo, you must supply it as OWNER/REPO.
+        # The API needs a repository. By default we assume the current repo.
+        REPO="$GITHUB_REPOSITORY"
+        # If run_id contains a slash (i.e., owner/repo/run_id), split it
+        if [[ "$RUN_ID" == */* ]]; then
+          REPO="$(echo "$RUN_ID" | cut -d/ -f1-2)"
+          RUN_ID="$(echo "$RUN_ID" | cut -d/ -f3)"
+        fi
+
+        echo "Fetching artifacts for run $RUN_ID in $REPO"
+
+        API_URL="https://api.github.com/repos/$REPO/actions/runs/$RUN_ID/artifacts"
+        artifacts_json=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
+                               -H "Accept: application/vnd.github+json" \
+                               "$API_URL")
+
+        # Filter by name if requested
+        if [[ -n "$ARTIFACT_NAMES" ]]; then
+          names_regex=$(echo "$ARTIFACT_NAMES" | tr ',' '|' | sed 's/ *//g')
+          echo "Filtering artifacts by names: $names_regex"
+          selected=$(echo "$artifacts_json" | jq --arg names "$names_regex" \
+            '[.artifacts[] | select(.name | test($names; "i"))]')
+        else
+          selected=$(echo "$artifacts_json" | jq '.artifacts')
+        fi
+
+        # Check if any artifacts found
+        count=$(echo "$selected" | jq 'length')
+        if [[ "$count" -eq 0 ]]; then
+          echo "WARNING: No matching artifacts found."
+          echo "url_list<<EOF" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        # Extract archive_download_url for each artifact
+        urls=$(echo "$selected" | jq -r '.[].archive_download_url')
+        echo "url_list<<EOF" >> $GITHUB_OUTPUT
+        echo "$urls" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+        echo "Resolved URLs:"
+        echo "$urls"
+
     - name: Download artifacts
       shell: bash
       env:
         TOKEN: ${{ inputs.download_token }}
-        URLS: ${{ inputs.artifact_urls }}
+        URLS: ${{ steps.urls.outputs.url_list }}
         DOWNLOAD_DIR: ${{ runner.temp }}/artifacts_download
       run: |
         set -euo pipefail
         mkdir -p "$DOWNLOAD_DIR"
         cd "$DOWNLOAD_DIR"
 
-        # Read URLs into an array (one per line)
         readarray -t urls <<< "$URLS"
+        if [[ ${#urls[@]} -eq 0 || ( ${#urls[@]} -eq 1 && -z "${urls[0]}" ) ]]; then
+          echo "No artifact URLs to download. Exiting."
+          exit 0
+        fi
 
         counter=0
         for url in "${urls[@]}"; do
-          # Skip empty lines
           [[ -z "$url" ]] && continue
           echo "::group::Downloading $url"
-
-          # Derive a filename, append a counter to avoid collisions
-          raw_name=$(basename "$url" | sed 's/[?].*//')
-          [[ -z "$raw_name" || "$raw_name" == "artifact" ]] && raw_name="artifact.zip"
-          ext="${raw_name##*.}"
-          base="${raw_name%.*}"
-          filename="${base}_${counter}.${ext}"
+          # Use a simple filename
+          filename="artifact_${counter}.zip"
           ((counter++))
-
           if [[ -n "$TOKEN" ]]; then
             curl -fsSL -H "Authorization: Bearer $TOKEN" -o "$filename" "$url"
           else
             curl -fsSL -o "$filename" "$url"
           fi
-
           echo "Downloaded → $filename"
           echo "::endgroup::"
         done
-
-        echo "All artifacts downloaded:"
+        echo "All artifacts downloaded: "
         ls -la
 
     - name: Combine artifacts (optional)
@@ -132,10 +207,7 @@ runs:
         DOWNLOAD_DIR: ${{ runner.temp }}/artifacts_download
       run: |
         set -euo pipefail
-
-        # Make sure gh CLI is available
         if ! command -v gh &>/dev/null; then
-          echo "Installing GitHub CLI ..."
           curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
           echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
           sudo apt-get update && sudo apt-get install -y gh
@@ -143,7 +215,6 @@ runs:
 
         cd "$DOWNLOAD_DIR"
 
-        # Determine asset files
         if [[ "$COMBINE" == "true" ]]; then
           archive="${COMBINED_ARCHIVE_NAME}.tar.gz"
           assets=("$archive")
@@ -152,9 +223,8 @@ runs:
           assets=(*)
         fi
 
-        # Create or update release
         if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" &>/dev/null; then
-          echo "Release '$TAG' already exists → uploading assets"
+          echo "Release '$TAG' exists → uploading assets"
           gh release upload "$TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
         else
           echo "Creating release '$TAG'"
@@ -164,6 +234,5 @@ runs:
           [[ "$DRAFT" == "true" ]] && flags+=(--draft)
           [[ "$PRERELEASE" == "true" ]] && flags+=(--prerelease)
           [[ -n "$TARGET" ]] && flags+=(--target "$TARGET")
-
           gh release create "$TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" "${flags[@]}"
         fi
