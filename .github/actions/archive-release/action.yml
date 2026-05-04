@@ -1,0 +1,169 @@
+name: 'Archive Artifacts as Release'
+description: |
+  Download artifacts from provided URLs, optionally combine them into
+  a single archive, and publish them as assets of a GitHub Release.
+
+inputs:
+  artifact_urls:
+    description: 'Newline-separated list of artifact download URLs'
+    required: true
+
+  release_tag:
+    description: 'Tag for the release (e.g., v1.0.0)'
+    required: true
+
+  release_name:
+    description: 'Title of the release (defaults to the tag)'
+    required: false
+    default: ''
+
+  body:
+    description: 'Release description / changelog'
+    required: false
+    default: ''
+
+  draft:
+    description: 'Create as draft release'
+    required: false
+    default: 'false'
+
+  prerelease:
+    description: 'Mark as pre-release'
+    required: false
+    default: 'false'
+
+  target_commitish:
+    description: 'Commitish that the tag will point to (default: current commit)'
+    required: false
+    default: ${{ github.sha }}
+
+  combine_artifacts:
+    description: 'Whether to bundle all artifacts into a single .tar.gz archive'
+    required: false
+    default: 'true'
+
+  combined_archive_name:
+    description: 'Base name for the combined archive (without extension)'
+    required: false
+    default: 'release-assets'
+
+  download_token:
+    description: >
+      Token used to download artifacts (Bearer auth).
+      Defaults to the workflow's GITHUB_TOKEN.
+    required: false
+    default: ${{ github.token }}
+
+  github_token:
+    description: >
+      GitHub token for creating the release / uploading assets.
+      Defaults to GITHUB_TOKEN.
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download artifacts
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.download_token }}
+        URLS: ${{ inputs.artifact_urls }}
+        DOWNLOAD_DIR: ${{ runner.temp }}/artifacts_download
+      run: |
+        set -euo pipefail
+        mkdir -p "$DOWNLOAD_DIR"
+        cd "$DOWNLOAD_DIR"
+
+        # Read URLs into an array (one per line)
+        readarray -t urls <<< "$URLS"
+
+        counter=0
+        for url in "${urls[@]}"; do
+          # Skip empty lines
+          [[ -z "$url" ]] && continue
+          echo "::group::Downloading $url"
+
+          # Derive a filename, append a counter to avoid collisions
+          raw_name=$(basename "$url" | sed 's/[?].*//')
+          [[ -z "$raw_name" || "$raw_name" == "artifact" ]] && raw_name="artifact.zip"
+          ext="${raw_name##*.}"
+          base="${raw_name%.*}"
+          filename="${base}_${counter}.${ext}"
+          ((counter++))
+
+          if [[ -n "$TOKEN" ]]; then
+            curl -fsSL -H "Authorization: Bearer $TOKEN" -o "$filename" "$url"
+          else
+            curl -fsSL -o "$filename" "$url"
+          fi
+
+          echo "Downloaded → $filename"
+          echo "::endgroup::"
+        done
+
+        echo "All artifacts downloaded:"
+        ls -la
+
+    - name: Combine artifacts (optional)
+      if: inputs.combine_artifacts == 'true'
+      shell: bash
+      env:
+        DOWNLOAD_DIR: ${{ runner.temp }}/artifacts_download
+        ARCHIVE_NAME: ${{ inputs.combined_archive_name }}
+      run: |
+        cd "$DOWNLOAD_DIR"
+        archive="${ARCHIVE_NAME}.tar.gz"
+        tar -czf "$archive" *
+        echo "Combined archive created: $archive"
+
+    - name: Create or update release
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        TAG: ${{ inputs.release_tag }}
+        TITLE: ${{ inputs.release_name }}
+        BODY: ${{ inputs.body }}
+        DRAFT: ${{ inputs.draft }}
+        PRERELEASE: ${{ inputs.prerelease }}
+        TARGET: ${{ inputs.target_commitish }}
+        COMBINE: ${{ inputs.combine_artifacts }}
+        COMBINED_ARCHIVE_NAME: ${{ inputs.combined_archive_name }}
+        DOWNLOAD_DIR: ${{ runner.temp }}/artifacts_download
+      run: |
+        set -euo pipefail
+
+        # Make sure gh CLI is available
+        if ! command -v gh &>/dev/null; then
+          echo "Installing GitHub CLI ..."
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+          sudo apt-get update && sudo apt-get install -y gh
+        fi
+
+        cd "$DOWNLOAD_DIR"
+
+        # Determine asset files
+        if [[ "$COMBINE" == "true" ]]; then
+          archive="${COMBINED_ARCHIVE_NAME}.tar.gz"
+          assets=("$archive")
+        else
+          shopt -s nullglob
+          assets=(*)
+        fi
+
+        # Create or update release
+        if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" &>/dev/null; then
+          echo "Release '$TAG' already exists → uploading assets"
+          gh release upload "$TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+        else
+          echo "Creating release '$TAG'"
+          flags=()
+          [[ -n "$TITLE" ]] && flags+=(--title "$TITLE")
+          [[ -n "$BODY" ]] && flags+=(--notes "$BODY")
+          [[ "$DRAFT" == "true" ]] && flags+=(--draft)
+          [[ "$PRERELEASE" == "true" ]] && flags+=(--prerelease)
+          [[ -n "$TARGET" ]] && flags+=(--target "$TARGET")
+
+          gh release create "$TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" "${flags[@]}"
+        fi
