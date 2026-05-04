@@ -3,11 +3,17 @@ on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: 'Workflow run ID (e.g., 25328445178)'
+        description: 'Workflow run ID'
         required: true
+        type: string
+      release_tag:
+        description: 'Release tag (e.g., v1.0.0)'
+        required: true
+        type: string
 
 permissions:
-  contents: write
+  contents: write   # needed to create releases and upload assets
+  actions: read     # needed to download artifacts (default token)
 
 jobs:
   publish:
@@ -15,12 +21,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Archive artifacts from run and release
+      - name: Archive artifacts and release
         uses: ./.github/actions/archive-release
         with:
           run_id: ${{ github.event.inputs.run_id }}
-          release_tag: 'v1.0.0'
-          release_name: 'Release v1.0.0'
-          body: 'Artifacts from run ${{ github.event.inputs.run_id }}'
-          # For cross-repo runs, provide a PAT with actions:read scope
-          download_token: ${{ secrets.PAT_TOKEN }}   # create this secret!
+          release_tag: ${{ github.event.inputs.release_tag }}
+          release_name: 'Release ${{ github.event.inputs.release_tag }}'
+          # body can be customised
