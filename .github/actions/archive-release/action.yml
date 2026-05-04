@@ -110,21 +110,25 @@ runs:
         mkdir -p "$DOWNLOAD_DIR"
         cd "$DOWNLOAD_DIR"
 
-        readarray -t urls <<< "$URLS"
+        urls_raw="${URLS%$'\n'}"
+        readarray -t urls <<< "$urls_raw"
         if [[ ${#urls[@]} -eq 0 || ( ${#urls[@]} -eq 1 && -z "${urls[0]}" ) ]]; then
           echo "No artifact URLs to download. Exiting."
           exit 0
         fi
 
-        counter=0
+        idx=0
         for url in "${urls[@]}"; do
+          url="${url//$'\r'/}"
           [[ -z "$url" ]] && continue
+          out="artifact_${idx}.zip"
           echo "::group::Downloading $url"
 
           headers_file=$(mktemp)
-          http_code=$(curl -w "%{http_code}" -o "artifact_${counter}.zip" \
+          http_code=$(curl -w "%{http_code}" -o "$out" \
                       -D "$headers_file" \
                       -H "Authorization: Bearer $GITHUB_TOKEN" \
+                      -H "Accept: application/vnd.github+json" \
                       -fsSL "$url") || true
 
           echo "HTTP status: $http_code"
@@ -132,15 +136,16 @@ runs:
             echo "ERROR: Download failed (HTTP $http_code)"
             echo "Response headers:"
             cat "$headers_file"
-            if [[ -f "artifact_${counter}.zip" ]]; then
+            rm -f "$headers_file"
+            if [[ -f "$out" ]]; then
               echo "First bytes of response:"
-              head -c 200 "artifact_${counter}.zip" | xxd | head -n 10
+              head -c 200 "$out" | xxd | head -n 10
             fi
             exit 1
           fi
-          ((counter++))
           rm -f "$headers_file"
-          echo "Downloaded → artifact_$((counter-1)).zip"
+          echo "Downloaded → $out"
+          idx=$((idx + 1))
           echo "::endgroup::"
         done
         echo "All artifacts downloaded successfully."
@@ -152,15 +157,23 @@ runs:
         DOWNLOAD_DIR: ${{ runner.temp }}/artifacts_download
         ARCHIVE_NAME: ${{ inputs.combined_archive_name }}
       run: |
+        set -euo pipefail
         cd "$DOWNLOAD_DIR"
+        shopt -s nullglob
+        zips=(artifact_*.zip)
+        if [[ ${#zips[@]} -eq 0 ]]; then
+          echo "::error::No artifact_*.zip files in $DOWNLOAD_DIR to combine."
+          exit 1
+        fi
         archive="${ARCHIVE_NAME}.tar.gz"
-        tar -czf "$archive" *
+        tar -czf "$archive" "${zips[@]}"
         echo "Combined archive created: $archive"
 
     - name: Create or update release
       shell: bash
       env:
         GITHUB_TOKEN: ${{ github.token }}
+        GH_TOKEN: ${{ github.token }}
         TAG: ${{ inputs.release_tag }}
         TITLE: ${{ inputs.release_name }}
         BODY: ${{ inputs.body }}
