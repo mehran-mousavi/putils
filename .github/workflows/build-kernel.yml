@@ -1,0 +1,122 @@
+name: Build ARM64 Kernel with BTF for Pi 5
+
+on:
+  workflow_dispatch:    # Allows manual trigger from GitHub UI
+  push:
+    branches: [ main ]  # Or change to your default branch
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm64   # Native ARM64 runner (fast!)
+    # If the above runner is unavailable, use cross-compilation on x64:
+    # runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout Raspberry Pi kernel source
+      uses: actions/checkout@v4
+      with:
+        repository: raspberrypi/linux
+        ref: rpi-6.18.y   # Stable branch; change as needed
+        fetch-depth: 1
+
+    - name: Install build dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y \
+          build-essential \
+          flex \
+          bison \
+          bc \
+          kmod \
+          cpio \
+          libssl-dev \
+          libncurses-dev \
+          libelf-dev \
+          dwarves \
+          pahole \
+          gcc-aarch64-linux-gnu \
+          binutils-aarch64-linux-gnu
+
+    - name: Configure kernel for Raspberry Pi 5
+      run: |
+        # Use Pi 5 config (ARM64)
+        make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- bcm2712_defconfig
+
+    - name: Enable BTF and BPF features
+      run: |
+        # Enable debug info (required for BTF)
+        scripts/config --enable DEBUG_INFO
+        # Enable BTF for kernel and modules
+        scripts/config --enable DEBUG_INFO_BTF
+        scripts/config --enable DEBUG_INFO_BTF_MODULES
+        # Use DWARF5 (good with BTF)
+        scripts/config --set-val DEBUG_INFO_DWARF5 y
+        # Disable compressed debug info (BTF needs uncompressed)
+        scripts/config --disable DEBUG_INFO_COMPRESSED
+        # Disable split debuginfo
+        scripts/config --disable DEBUG_INFO_SPLIT
+        # Disable reduced debug info
+        scripts/config --disable DEBUG_INFO_REDUCED
+        # Enable probe args BTF
+        scripts/config --enable PROBE_EVENTS_BTF_ARGS
+        # Enable BPF Qdisc
+        scripts/config --enable NET_SCH_BPF
+        # Disable module BTF mismatch allowance (safer)
+        scripts/config --disable MODULE_ALLOW_BTF_MISMATCH
+        # Optional: disable GDB scripts (saves time)
+        scripts/config --disable GDB_SCRIPTS
+
+    - name: Verify BTF configuration
+      run: |
+        echo "=== BTF settings ==="
+        grep CONFIG_DEBUG_INFO_BTF .config
+        grep CONFIG_DEBUG_INFO_BTF_MODULES .config
+
+    - name: Build kernel image, modules, and DTBs
+      run: |
+        # Use all available cores
+        make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- Image.gz modules dtbs
+
+    - name: Prepare kernel modules archive
+      run: |
+        # Create a temporary directory for modules
+        mkdir -p ./install_modules
+        make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+          INSTALL_MOD_PATH=./install_modules modules_install
+        # Compress modules for easy download
+        tar -czf kernel-modules.tar.gz -C ./install_modules .
+
+    - name: Collect DTB files
+      run: |
+        mkdir -p ./install_dtbs
+        cp arch/arm64/boot/dts/broadcom/*.dtb ./install_dtbs/
+        cp -r arch/arm64/boot/dts/overlays ./install_dtbs/
+        tar -czf kernel-dtbs.tar.gz -C ./install_dtbs .
+
+    - name: Upload kernel image (Image.gz)
+      uses: actions/upload-artifact@v4
+      with:
+        name: kernel-image
+        path: arch/arm64/boot/Image.gz
+        retention-days: 7
+
+    - name: Upload kernel modules
+      uses: actions/upload-artifact@v4
+      with:
+        name: kernel-modules
+        path: kernel-modules.tar.gz
+        retention-days: 7
+
+    - name: Upload device tree blobs
+      uses: actions/upload-artifact@v4
+      with:
+        name: kernel-dtbs
+        path: kernel-dtbs.tar.gz
+        retention-days: 7
+
+    - name: Upload config file (for reference)
+      uses: actions/upload-artifact@v4
+      with:
+        name: kernel-config
+        path: .config
+        retention-days: 7
