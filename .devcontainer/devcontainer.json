@@ -1,9 +1,19 @@
 {
-	"name": "SOCKS5 Proxy Codespaces",
-	"image": "mcr.microsoft.com/devcontainers/base:ubuntu",
-	"features": {
-	  "ghcr.io/devcontainers-extra/features/chisel:1.0.4": {},
-      "ghcr.io/devcontainers/features/sshd:1": {}
-	},
-	"postAttachCommand": "bash /workspaces/putils/startup.sh"
+  "name": "SOCKS5 Proxy Codespaces",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers-extra/features/chisel:1.0.4": {},
+    "ghcr.io/devcontainers/features/sshd:1": {}
+  },
+  "remoteUser": "vscode",
+  "overrideCommand": false,
+  "forwardPorts": [22],
+  "portsAttributes": {
+    "22": {
+      "label": "sshd",
+      "onAutoForward": "notify"
+    }
+  },
+  "postCreateCommand": "sudo mkdir -p /var/run/sshd && sudo sh -c \"grep -q '^PubkeyAuthentication yes' /etc/ssh/sshd_config || echo 'PubkeyAuthentication yes' >> /etc/ssh/sshd_config\" && sudo sh -c \"grep -q '^PasswordAuthentication no' /etc/ssh/sshd_config || echo 'PasswordAuthentication no' >> /etc/ssh/sshd_config\" && sudo sh -c \"grep -q '^PermitRootLogin no' /etc/ssh/sshd_config || echo 'PermitRootLogin no' >> /etc/ssh/sshd_config\"",
+  "postAttachCommand": "bash /workspaces/putils/startup.sh"
 }
