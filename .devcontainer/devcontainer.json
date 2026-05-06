@@ -2,18 +2,39 @@
   "name": "SOCKS5 Proxy Codespaces",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
   "features": {
-    "ghcr.io/devcontainers-extra/features/chisel:1.0.4": {},
-    "ghcr.io/devcontainers/features/sshd:1": {}
+    "ghcr.io/devcontainers/features/sshd:1": {},
+    "ghcr.io/devcontainers/features/desktop-lite:1": {
+      "password": "vscode",
+      "webPort": "6080",
+      "vncPort": "5901"
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {
+      "version": "latest"
+    }
+  },
+  "containerEnv": {
+    "SSH_LOGIN_USER": "root"
   },
   "remoteUser": "vscode",
   "overrideCommand": false,
-  "forwardPorts": [22],
+  "forwardPorts": [2222, 5901, 6080, 8080],
   "portsAttributes": {
-    "22": {
+    "2222": {
       "label": "sshd",
+      "onAutoForward": "notify"
+    },
+    "5901": {
+      "label": "desktop-vnc",
+      "onAutoForward": "notify"
+    },
+    "6080": {
+      "label": "desktop-web",
+      "onAutoForward": "openBrowserOnce"
+    },
+    "8080": {
+      "label": "socks5-chisel",
       "onAutoForward": "notify"
     }
   },
-  "postCreateCommand": "sudo mkdir -p /var/run/sshd && sudo sh -c \"grep -q '^PubkeyAuthentication yes' /etc/ssh/sshd_config || echo 'PubkeyAuthentication yes' >> /etc/ssh/sshd_config\" && sudo sh -c \"grep -q '^PasswordAuthentication no' /etc/ssh/sshd_config || echo 'PasswordAuthentication no' >> /etc/ssh/sshd_config\" && sudo sh -c \"grep -q '^PermitRootLogin no' /etc/ssh/sshd_config || echo 'PermitRootLogin no' >> /etc/ssh/sshd_config\"",
-  "postAttachCommand": "bash /workspaces/putils/startup.sh"
+  "postCreateCommand": "bash /workspaces/putils/startup.sh"
 }

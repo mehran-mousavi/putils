@@ -2,6 +2,8 @@
 set -e
 
 PORT=8080
+SSH_LOGIN_USER="${SSH_LOGIN_USER:-root}"
+SSH_PASSWORD_ENV_VAR="SSH_ROOT_PASSWORD"
 
 log() {
     echo "🔧 $1"
@@ -17,13 +19,23 @@ if [ -z "$CODESPACE_NAME" ] || [ -z "$GITHUB_TOKEN" ]; then
     error "This script must be run inside an active GitHub Codespace."
 fi
 
-# 2. Ensure GitHub CLI is installed
+# 2. Ensure GitHub CLI is available from devcontainer feature
 if ! command -v gh &> /dev/null; then
-    log "Installing GitHub CLI..."
-    sudo apt update && sudo apt install -y gh
+    error "GitHub CLI (gh) is missing. Rebuild the Codespace to install the github-cli feature."
 fi
 
-# 3. Authenticate GitHub CLI using the Codespace token
+# 3. Configure SSH login credentials (root + password from env var)
+SSH_LOGIN_PASSWORD="${!SSH_PASSWORD_ENV_VAR:-}"
+if [ "$SSH_LOGIN_USER" != "root" ]; then
+    error "This setup expects SSH_LOGIN_USER=root to match sshd feature behavior."
+fi
+if [ -z "$SSH_LOGIN_PASSWORD" ]; then
+    error "Missing ${SSH_PASSWORD_ENV_VAR}. Set it as a Codespaces secret/environment variable."
+fi
+echo "${SSH_LOGIN_USER}:${SSH_LOGIN_PASSWORD}" | sudo chpasswd
+log "SSH login configured for user '${SSH_LOGIN_USER}' using password from ${SSH_PASSWORD_ENV_VAR}."
+
+# 4. Authenticate GitHub CLI using the Codespace token
 if ! gh auth status &> /dev/null; then
     log "Authenticating GitHub CLI with GITHUB_TOKEN..."
     echo "${GITHUB_TOKEN}" | gh auth login --with-token --hostname github.com
@@ -31,14 +43,23 @@ else
     log "GitHub CLI already authenticated."
 fi
 
-# 4. Check if chisel is installed or install it
+# 5. Install Google Chrome for desktop-lite if missing
+if ! command -v google-chrome &> /dev/null; then
+    log "Installing Google Chrome..."
+    sudo apt-get update
+    sudo bash -c "export DEBIAN_FRONTEND=noninteractive && curl -sSL https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -o /tmp/chrome.deb && apt-get -y install /tmp/chrome.deb"
+else
+    log "Google Chrome already installed."
+fi
+
+# 6. Check if chisel is installed or install it
 if ! command -v chisel &> /dev/null; then
     log "Chisel not found. Installing from GitHub..."
-    sudo curl -L https://github.com/jpillora/chisel/releases/download/v1.9.1/chisel_1.9.1_linux_amd64.gz | gunzip | sudo tee /usr/local/bin/chisel > /dev/null
+    sudo curl -L https://github.com/jpillora/chisel/releases/download/v1.11.5/chisel_1.11.5_linux_amd64.gz | gunzip | sudo tee /usr/local/bin/chisel > /dev/null
     sudo chmod +x /usr/local/bin/chisel
 fi
 
-# 5. Start chisel SOCKS5 proxy if not already running on PORT
+# 7. Start chisel SOCKS5 proxy if not already running on PORT
 check_port_active() {
     ss -lpn | grep -q ":$PORT"
 }
@@ -61,12 +82,12 @@ else
     start_chisel
 fi
 
-# 6. Make the port publicly accessible on the current Codespace
+# 8. Make the port publicly accessible on the current Codespace
 log "Making port $PORT public via GitHub CLI..."
 # We explicitly pass the Codespace name if necessary, or let gh default to the current connected codespace
 gh codespace ports visibility "$PORT:public" --codespace "$CODESPACE_NAME" || error "Failed to set port visibility"
 
-# 7. Retrieve and display the published public URL
+# 9. Retrieve and display the published public URL
 get_published_url() {
     gh codespace ports list --codespace "$CODESPACE_NAME" --jq ".[] | select(.sourcePort==$PORT) | (.publicUrl // .browseUrl)"
 }
