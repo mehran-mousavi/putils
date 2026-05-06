@@ -36,5 +36,6 @@
       "onAutoForward": "notify"
     }
   },
-  "postCreateCommand": "bash /workspaces/putils/startup.sh"
+  "postCreateCommand": "bash /workspaces/putils/startup.sh --post-create || true",
+  "postAttachCommand": "bash /workspaces/putils/startup.sh --post-attach || true"
 }
