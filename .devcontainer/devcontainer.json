@@ -1,5 +1,5 @@
 {
-  "name": "Personal Python Dev Continer",
+  "name": "Personal Python Dev Container",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
   "features": {
     "ghcr.io/devcontainers/features/sshd:1": {},
@@ -11,7 +11,7 @@
     "SSH_LOGIN_USER": "root"
   },
   "remoteUser": "vscode",
-  "overrideCommand": false,
+  "overrideCommand": true,
   "forwardPorts": [2222, 8080],
   "portsAttributes": {
     "2222": {
@@ -23,5 +23,5 @@
       "onAutoForward": "notify"
     }
   },
-  "postAttachCommand": "bash /workspaces/putils/startup.sh"
+  "postStartCommand": "nohup bash /workspaces/putils/startup.sh > /tmp/putils-startup.log 2>&1 < /dev/null &"
 }
