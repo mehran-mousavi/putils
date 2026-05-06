@@ -6,12 +6,12 @@ SSH_LOGIN_USER="${SSH_LOGIN_USER:-root}"
 SSH_PASSWORD_ENV_VAR="${SSH_PASSWORD_ENV_VAR:-SSH_ROOT_PASSWORD}"
 STARTUP_LOCK_DIR="${STARTUP_LOCK_DIR:-/tmp/putils-startup.lock}"
 CHISEL_LOG="${CHISEL_LOG:-/tmp/chisel.log}"
-GH_TIMEOUT_SECONDS="${GH_TIMEOUT_SECONDS:-20}"
+GH_TIMEOUT_SECONDS="${GH_TIMEOUT_SECONDS:-60}"
 CHISEL_DOWNLOAD_TIMEOUT_SECONDS="${CHISEL_DOWNLOAD_TIMEOUT_SECONDS:-120}"
 export GH_PROMPT_DISABLED=1
 
 log() {
-    echo "putils-startup: $1"
+    echo "putils-startup: $1" >&2
 }
 
 warn() {
@@ -141,7 +141,17 @@ publish_chisel_port() {
 }
 
 get_published_url() {
-    run_with_timeout "$GH_TIMEOUT_SECONDS" gh codespace ports list --codespace "$CODESPACE_NAME" --jq ".[] | select(.sourcePort==$PORT) | (.publicUrl // .browseUrl)" 2>/dev/null || true
+    local url=""
+
+    # Prefer machine-readable output when supported by the installed gh version.
+    url="$(run_with_timeout "$GH_TIMEOUT_SECONDS" gh codespace ports --codespace "$CODESPACE_NAME" --json port,browseUrl,url,publicUrl --jq ".[] | select((.port | tostring) == \"$PORT\") | (.publicUrl // .browseUrl // .url)" 2>/dev/null || true)"
+    if [ -n "$url" ]; then
+        printf '%s\n' "$url"
+        return 0
+    fi
+
+    # Fallback: parse table output for wider gh compatibility.
+    run_with_timeout "$GH_TIMEOUT_SECONDS" gh codespace ports --codespace "$CODESPACE_NAME" 2>/dev/null | awk -v target_port="$PORT" 'NR > 1 && $2 == target_port { print $4; exit }' || true
 }
 
 wait_for_published_url() {
@@ -169,7 +179,7 @@ show_published_url() {
         if [ -n "$URL" ]; then
             echo "Published URL for port $PORT: $URL"
         else
-            log "Could not retrieve published URL. Check manually with: gh codespace ports list --codespace \"$CODESPACE_NAME\""
+            log "Could not retrieve published URL. Check manually with: gh codespace ports --codespace \"$CODESPACE_NAME\""
         fi
     fi
 }
