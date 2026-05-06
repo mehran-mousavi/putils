@@ -66,20 +66,33 @@ log "Making port $PORT public via GitHub CLI..."
 # We explicitly pass the Codespace name if necessary, or let gh default to the current connected codespace
 gh codespace ports visibility "$PORT:public" --codespace "$CODESPACE_NAME" || error "Failed to set port visibility"
 
-# 7. Retrieve and display the public URL
-get_public_url() {
-    gh codespace ports list --codespace "$CODESPACE_NAME" --jq ".[] | select(.sourcePort==$PORT) | .browseUrl"
+# 7. Retrieve and display the published public URL
+get_published_url() {
+    gh codespace ports list --codespace "$CODESPACE_NAME" --jq ".[] | select(.sourcePort==$PORT) | (.publicUrl // .browseUrl)"
 }
 
-URL=$(get_public_url)
-if [ -z "$URL" ]; then
-    log "Waiting for URL propagation..."
-    sleep 3
-    URL=$(get_public_url)
-fi
+wait_for_published_url() {
+    local attempts=5
+    local delay_seconds=2
+    local published_url=""
 
+    for ((i=1; i<=attempts; i++)); do
+        published_url=$(get_published_url)
+        if [ -n "$published_url" ]; then
+            echo "$published_url"
+            return 0
+        fi
+
+        log "Waiting for URL propagation... ($i/$attempts)"
+        sleep "$delay_seconds"
+    done
+
+    return 1
+}
+
+URL=$(wait_for_published_url || true)
 if [ -n "$URL" ]; then
-    echo "🎉 Port $PORT is publicly accessible at: $URL"
+    echo "🎉 Published URL for port $PORT: $URL"
 else
-    log "Could not retrieve URL. Check manually with: gh codespace ports list"
+    log "Could not retrieve published URL. Check manually with: gh codespace ports list --codespace \"$CODESPACE_NAME\""
 fi
