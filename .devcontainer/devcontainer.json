@@ -23,5 +23,5 @@
       "onAutoForward": "notify"
     }
   },
-  "postAttachCommand": "nohup bash /workspaces/putils/startup.sh > /tmp/putils-post-attach.log 2>&1 &"
+  "postAttachCommand": "bash /workspaces/putils/startup.sh"
 }

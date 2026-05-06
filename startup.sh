@@ -4,7 +4,6 @@ set -euo pipefail
 PORT=8080
 SSH_LOGIN_USER="${SSH_LOGIN_USER:-root}"
 SSH_PASSWORD_ENV_VAR="SSH_ROOT_PASSWORD"
-LOCK_FILE="/tmp/putils-startup.lock"
 
 log() {
     echo "🔧 $1"
@@ -125,12 +124,6 @@ show_published_url() {
     fi
 }
 
-# Avoid overlapping runs from multiple attach events.
-exec 9>"$LOCK_FILE"
-if ! flock -n 9; then
-    warn "Startup is already running; skipping duplicate invocation."
-    exit 0
-fi
 
 configure_ssh_credentials
 configure_gh_auth
