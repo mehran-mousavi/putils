@@ -46,19 +46,6 @@ configure_gh_auth() {
     fi
 }
 
-install_chrome_if_missing() {
-    if ! command -v google-chrome &> /dev/null; then
-        log "Installing Google Chrome..."
-        if sudo apt-get update && sudo bash -c "export DEBIAN_FRONTEND=noninteractive && curl -fsSL https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -o /tmp/chrome.deb && apt-get -y install /tmp/chrome.deb"; then
-            log "Google Chrome installed."
-        else
-            warn "Google Chrome installation failed during postAttach. Continuing."
-        fi
-    else
-        log "Google Chrome already installed."
-    fi
-}
-
 install_chisel_if_missing() {
     if ! command -v chisel &> /dev/null; then
         log "Chisel not found. Installing from GitHub..."
@@ -147,7 +134,6 @@ fi
 
 configure_ssh_credentials
 configure_gh_auth
-install_chrome_if_missing
 install_chisel_if_missing
 publish_chisel_port
 show_published_url

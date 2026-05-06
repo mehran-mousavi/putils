@@ -1,13 +1,8 @@
 {
-  "name": "SOCKS5 Proxy Codespaces",
+  "name": "Personal Python Dev Continer",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
   "features": {
     "ghcr.io/devcontainers/features/sshd:1": {},
-    "ghcr.io/devcontainers/features/desktop-lite:1": {
-      "password": "vscode",
-      "webPort": "6080",
-      "vncPort": "5901"
-    },
     "ghcr.io/devcontainers/features/github-cli:1": {
       "version": "latest"
     }
@@ -17,19 +12,11 @@
   },
   "remoteUser": "vscode",
   "overrideCommand": false,
-  "forwardPorts": [2222, 5901, 6080, 8080],
+  "forwardPorts": [2222, 8080],
   "portsAttributes": {
     "2222": {
       "label": "sshd",
       "onAutoForward": "notify"
-    },
-    "5901": {
-      "label": "desktop-vnc",
-      "onAutoForward": "notify"
-    },
-    "6080": {
-      "label": "desktop-web",
-      "onAutoForward": "openBrowserOnce"
     },
     "8080": {
       "label": "socks5-chisel",
