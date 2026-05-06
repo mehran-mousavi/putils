@@ -4,15 +4,10 @@ set -euo pipefail
 PORT=8080
 SSH_LOGIN_USER="${SSH_LOGIN_USER:-root}"
 SSH_PASSWORD_ENV_VAR="SSH_ROOT_PASSWORD"
-MODE="${1:---post-attach}"
+LOCK_FILE="/tmp/putils-startup.lock"
 
 log() {
     echo "🔧 $1"
-}
-
-error() {
-    echo "❌ $1" >&2
-    exit 1
 }
 
 warn() {
@@ -75,7 +70,6 @@ install_chisel_if_missing() {
     fi
 }
 
-# Start chisel SOCKS5 proxy if not already running on PORT
 check_port_active() {
     ss -lpn | grep -q ":$PORT"
 }
@@ -88,7 +82,7 @@ start_chisel() {
     if kill -0 $pid 2>/dev/null; then
         log "Chisel server started with PID $pid"
     else
-        error "Chisel server failed to start. Check /tmp/chisel.log"
+        warn "Chisel server failed to start. Check /tmp/chisel.log"
     fi
 }
 
@@ -144,18 +138,16 @@ show_published_url() {
     fi
 }
 
-case "$MODE" in
-    --post-create)
-        configure_ssh_credentials
-        ;;
-    --post-attach)
-        configure_gh_auth
-        install_chrome_if_missing
-        install_chisel_if_missing
-        publish_chisel_port
-        show_published_url
-        ;;
-    *)
-        warn "Unknown mode '$MODE'. Supported: --post-create | --post-attach"
-        ;;
-esac
+# Avoid overlapping runs from multiple attach events.
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+    warn "Startup is already running; skipping duplicate invocation."
+    exit 0
+fi
+
+configure_ssh_credentials
+configure_gh_auth
+install_chrome_if_missing
+install_chisel_if_missing
+publish_chisel_port
+show_published_url
