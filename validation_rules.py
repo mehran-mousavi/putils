@@ -1,16 +1,22 @@
-"""Formatting helpers under active iteration."""
+"""Small utility prototype for iterative development."""
 # prototype-track: session-iteration
 
-
-def format_pairs(data):
-    ordered = sorted(data.items(), key=lambda pair: pair[0])
-    return ", ".join(f"{key}={value}" for key, value in ordered)
+from datetime import datetime
 
 
-def build_report(name, payload):
-    line = format_pairs(payload)
-    return f"[{name}] {line}"
+def normalize_items(items):
+    return [item.strip().lower() for item in items if item and item.strip()]
+
+
+def build_snapshot(items):
+    clean = normalize_items(items)
+    return {
+        "count": len(clean),
+        "items": clean[:5],
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds"),
+    }
 
 
 if __name__ == "__main__":
-    print(build_report("validation_rules.py", {"status": "ok", "version": "v1"}))
+    sample = [" Alpha ", "beta", "", "GAMMA"]
+    print(build_snapshot(sample))
