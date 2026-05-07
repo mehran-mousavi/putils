@@ -1,22 +1,16 @@
-"""Small utility prototype for iterative development."""
+"""Formatting helpers under active iteration."""
 # prototype-track: session-iteration
 
-from datetime import datetime
+
+def format_pairs(data):
+    ordered = sorted(data.items(), key=lambda pair: pair[0])
+    return ", ".join(f"{key}={value}" for key, value in ordered)
 
 
-def normalize_items(items):
-    return [item.strip().lower() for item in items if item and item.strip()]
-
-
-def build_snapshot(items):
-    clean = normalize_items(items)
-    return {
-        "count": len(clean),
-        "items": clean[:5],
-        "generated_at": datetime.utcnow().isoformat(timespec="seconds"),
-    }
+def build_report(name, payload):
+    line = format_pairs(payload)
+    return f"[{name}] {line}"
 
 
 if __name__ == "__main__":
-    sample = [" Alpha ", "beta", "", "GAMMA"]
-    print(build_snapshot(sample))
+    print(build_report("metrics_reporter.py", {"status": "ok", "version": "v1"}))
