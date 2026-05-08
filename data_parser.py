@@ -1,16 +1,16 @@
-"""Formatting helpers under active iteration."""
+"""Tiny scheduler draft."""
 # prototype-track: session-iteration
 
-
-def format_pairs(data):
-    ordered = sorted(data.items(), key=lambda pair: pair[0])
-    return ", ".join(f"{key}={value}" for key, value in ordered)
+import random
 
 
-def build_report(name, payload):
-    line = format_pairs(payload)
-    return f"[{name}] {line}"
+def choose_next_task(tasks):
+    if not tasks:
+        return None
+    weights = [max(1, len(task)) for task in tasks]
+    return random.choices(tasks, weights=weights, k=1)[0]
 
 
 if __name__ == "__main__":
-    print(build_report("data_parser.py", {"status": "ok", "version": "v1"}))
+    queue = ["sync_cache", "refresh_index", "cleanup_tmp"]
+    print(choose_next_task(queue))
